@@ -208,7 +208,7 @@ def process_transcription_in_blocks(file_path_transcript, file_path_episode, ses
                                                  "segments", session_id)
         time.sleep(random.randint(2, 5))
 
-
+# Streamlit App
 st.set_page_config(
     page_title="PodSum.app",
     page_icon="🧊",
@@ -221,95 +221,89 @@ st.set_page_config(
     }
 )
 
-
-
-
 left_co, cent_co,last_co = st.columns(3)
 with cent_co:
     st.image('PodSumAppBeta.png', width=200)
 
-with st.form("my_form"):
-   st.write("**This is how it works:**")
 
-   multi = '''Welcome to PodSum.app. Your AI tool for podcast audio summaries. Upload your podcast episode to be summarized, your intro and a separator sound. Then click on the "Sum it!" button and wait until the summary has been created. The summary can be downloaded as a MP3-file.
-   '''
+st.write("**This is how it works:**")
 
-   st.markdown(multi)
+multi = '''Welcome to PodSum.app. Your AI tool for podcast audio summaries. Upload your podcast episode to be summarized, your intro and a separator sound. Then click on the "Sum it!" button and wait until the summary has been created. The summary can be downloaded as a MP3-file.
+'''
+st.markdown(multi)
 
-   st.divider()
+st.divider()
 
-   # Upload only mp3 files with max 20mb size
-   uploaded_file_episode = st.file_uploader("Upload Podcast Episode", type=['mp3'],
+# Upload only mp3 files with max 20mb size
+uploaded_file_episode = st.file_uploader("Upload Podcast Episode *Mandatory", type=['mp3'],
                                     help="Lade hier die MP3 deiner Podcast-Episode hoch, für die eine Audio-Zusammenfassung erstellt werden soll.",
                                     accept_multiple_files=False)
 
-
-   # Upload only mp3 files with max 20mb size
-   uploaded_file_intro = st.file_uploader("Upload Summary-Intro", type=['mp3'],
+# Upload only mp3 files with max 20mb size
+uploaded_file_intro = st.file_uploader("Upload Summary-Intro *Mandatory", type=['mp3'],
                                     help="Lade hier dein Intro für die Audio-Zusammenfassung hoch. Zum Beispiel: Willkommen zu meinem Podcast XY. In der heutigen Episode wird es um XY gehen und hören wir jetzt mal rein...",
                                     accept_multiple_files=False)
 
-
-   # Upload only mp3 files with max 20mb size
-   uploaded_file_separator = st.file_uploader("Upload Segment Separator", type=['mp3'],
+# Upload only mp3 files with max 20mb size
+uploaded_file_separator = st.file_uploader("Upload Segment Separator *Mandatory", type=['mp3'],
                                     help="Der Segment Separator wird verwendet, um die einzelnen Impressionen aus der Podcast-Episode voneinander abzugrenzen.",
                                     accept_multiple_files=False)
 
-   submitted = st.form_submit_button("Sum it!")
-
-   # Generierung einer fünfstelligen Zufallszahl
-   session_id = random.randint(10000, 99999)
 
 
-   if submitted:
-       with st.spinner('Processing has been started (this may take a while)...'):
-           if uploaded_file_episode is not None and uploaded_file_intro is not None and uploaded_file_separator is not None:
-
-               file_path_transcript = os.path.join("transcript",
-                                                   f"{session_id}_transcript_{uploaded_file_episode.name}.txt")
-               file_path_export = os.path.join("export", f"{session_id}_podSummarized_{uploaded_file_episode.name}")
-               file_path_episode = os.path.join("episode", f"{session_id}_{uploaded_file_episode.name}")
-               file_path_intro = os.path.join("intro", f"{session_id}_{uploaded_file_intro.name}")
-               file_path_separator = os.path.join("separator", f"{session_id}_{uploaded_file_separator.name}")
-
-               with open(file_path_episode, "wb") as f:
-                   f.write(uploaded_file_episode.getbuffer())
-               with open(file_path_intro, "wb") as f:
-                   f.write(uploaded_file_intro.getbuffer())
-               with open(file_path_separator, "wb") as f:
-                   f.write(uploaded_file_separator.getbuffer())
-
-               transcribe_podcast(file_path_episode, file_path_transcript)
-               st.success("Listened to your podcast episode and transcribed it!")
-
-               extracted_text = extract_max_1000_words(file_path_transcript)
-               topic, type = get_type_and_topic(extracted_text)
-
-               process_transcription_in_blocks(file_path_transcript, file_path_episode, session_id, topic, type)
-               st.success("Found the most relevant segments!")
-               merge_mp3_with_separator("segments", file_path_separator, file_path_export, session_id, file_path_intro)
-               st.success("Merged the segments and created the summary!")
-               if file_path_export is not None and check_mp3_integrity(file_path_export):
-                   st.write("Listen to your summary and download it!")
-                   delete_files_with_number('segments', session_id)
-                   delete_files_with_number('episode', session_id)
-                   delete_files_with_number('intro', session_id)
-                   delete_files_with_number('separator', session_id)
-                   delete_files_with_number('transcript', session_id)
-                   audio_file = open(file_path_export, 'rb')
-                   audio_bytes = audio_file.read()
-                   st.audio(audio_bytes, format='audio/mp3')
+# Generierung einer fünfstelligen Zufallszahl
+session_id = random.randint(10000, 99999)
 
 
-               else:
-                   st.write("Da ist etwas schief gegangen. Probiere es bitte erneut")
-           else:
-               st.write("Es wurden keine Podcastfolge, Intro oder Separator hochgeladen")
-       st.success('Done!')
+if st.button('Sum it!', type="primary"):
+    with st.spinner("Summarizing your podcast..."):
+        if uploaded_file_episode is not None and uploaded_file_intro is not None and uploaded_file_separator is not None:
+            file_path_transcript = os.path.join("transcript", f"{session_id}_transcript_{uploaded_file_episode.name}.txt")
+            file_path_export = os.path.join("export", f"{session_id}_podSummarized_{uploaded_file_episode.name}")
+            file_path_episode = os.path.join("episode", f"{session_id}_{uploaded_file_episode.name}")
+            file_path_intro = os.path.join("intro", f"{session_id}_{uploaded_file_intro.name}")
+            file_path_separator = os.path.join("separator", f"{session_id}_{uploaded_file_separator.name}")
 
+            with open(file_path_episode, "wb") as f:
+                f.write(uploaded_file_episode.getbuffer())
+            with open(file_path_intro, "wb") as f:
+                f.write(uploaded_file_intro.getbuffer())
+            with open(file_path_separator, "wb") as f:
+                f.write(uploaded_file_separator.getbuffer())
 
+            transcribe_podcast(file_path_episode, file_path_transcript)
+            st.success("Listened to your podcast episode and transcribed it!")
+
+            extracted_text = extract_max_1000_words(file_path_transcript)
+            topic, type = get_type_and_topic(extracted_text)
+
+            process_transcription_in_blocks(file_path_transcript, file_path_episode, session_id, topic, type)
+            st.success("Found the most relevant segments!")
+
+            merge_mp3_with_separator("segments", file_path_separator, file_path_export, session_id, file_path_intro)
+            st.success("Merged the segments and created the summary!")
+
+            if file_path_export is not None and check_mp3_integrity(file_path_export):
+                audio_file = open(f"{file_path_export}", 'rb')
+                audio_bytes = audio_file.read()
+                st.audio(audio_bytes, format='audio/mp3')
+
+                st.download_button(label="Download your summary", data=audio_bytes, file_name=f"{file_path_export}", mime="audio/mp3")
+
+                delete_files_with_number('segments', session_id)
+                delete_files_with_number('episode', session_id)
+                delete_files_with_number('intro', session_id)
+                delete_files_with_number('separator', session_id)
+                delete_files_with_number('transcript', session_id)
+
+            else:
+                st.write("Something went wrong. Please try again.")
+        else:
+            st.write("There are files missing. Please upload all files.")
+
+st.divider()
 
 st.write("**All of your data will be deleted after summirization.**")
-st.write("Impressum/Datenschutz")
+st.write("[Impressum](https://stefanai.de/impressum)/[Datenschutz](https://stefanai.de/datenschutz)")
 
 
