@@ -18,8 +18,6 @@ client = OpenAI()
 #logging
 logging.basicConfig(filename='app.log', filemode='w', format='%(name)s - %(levelname)s - %(message)s')
 
-#openai.api_key = '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'
-
 def check_mp3_integrity(file_path):
     try:
         # Versucht, die Datei zu öffnen und zu analysieren
