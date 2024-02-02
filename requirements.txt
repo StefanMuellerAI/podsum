@@ -1,6 +1,6 @@
 whisper==1.1.10
 openai-whisper @ git+https://github.com/openai/whisper.git@ba3f3cd54b0e5b8ce1ab3de13e32122d0d5f98ab
 streamlit==1.30.0
-mutagen @ file:///private/tmp/python-mutagen-20231008-5381-g1gbh9/mutagen-1.47.0
+mutagen==1.47.0
 python-dotenv==0.21.1
 openai==1.10.0
