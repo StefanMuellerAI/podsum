@@ -9,8 +9,11 @@ import json
 import random
 import logging
 import mutagen
+from mutagen.mp3 import MP3
 from dotenv import load_dotenv
 from openai import OpenAI
+from faster_whisper import WhisperModel
+
 
 load_dotenv()
 client = OpenAI()
@@ -29,6 +32,7 @@ def check_mp3_integrity(file_path):
     except mutagen.MutagenError:
         # Fängt spezifische Fehler ab, die während der Analyse der Datei auftreten können
         return False
+
 def transcribe_podcast(file_path, output_file):
     model = whisper.load_model("base")  # Oder 'small', 'medium', 'large', je nach Bedarf
     result = model.transcribe(file_path)
@@ -36,6 +40,29 @@ def transcribe_podcast(file_path, output_file):
     with open(output_file, "w") as f:
         for i, segment in enumerate(result["segments"], start=1):
             f.write(f"Segment {i}: {segment['start']}-{segment['end']}: {segment['text']}\n")
+
+
+def transcribe_podcast_faster(file_path, output_file):
+
+
+    model_size = "tiny"
+    # Passen Sie die device und compute_type Parameter entsprechend Ihrer Umgebung an
+    model = WhisperModel(model_size, device="cpu", compute_type="int8")
+    i = 0
+    segments, info = model.transcribe(file_path, beam_size=5)
+
+
+
+    print("Detected language '%s' with probability %f" % (info.language, info.language_probability))
+
+    with open(output_file, "w") as f:
+        for segment in segments:  # Verwenden Sie segments direkt ohne enumerate
+           i = i + 1
+           f.write(f"Segment {i}: {segment.start}-{segment.end}: {segment.text}\n")
+
+
+
+
 
 # Verwenden Sie diese Funktion, um Ihren Podcast zu transkribieren und in eine Datei zu schreiben
 
@@ -56,26 +83,30 @@ def apply_fade_to_segments(segments_folder, session_id):
                 "-i", segment_file,
                 "-af", "afade=t=in:st=0:d=0.5",
                 "-acodec", "libmp3lame",
-                "-loglevel", "debug",
                 faded_file
             ])
             faded_files.append(faded_file)
 
     return faded_files
 
-def merge_mp3_with_separator(segments_folder, file_path_separator, output_file, session_id, file_path_intro):
+def merge_mp3_with_separator(segments_folder, file_path_separator, output_file, session_id, toggle_intro, toggle_fade, file_path_intro=None):
+
+
     # Löschen der spezifischen Datei, falls vorhanden
     specific_file_to_delete = os.path.join(segments_folder, f"{session_id}_output_segment_0.mp3")
     if os.path.exists(specific_file_to_delete):
         os.remove(specific_file_to_delete)
 
     # Anwenden von Fade-In und Fade-Out auf jedes Segment
-    segment_files = apply_fade_to_segments(segments_folder, session_id)
+    if toggle_fade:
+        segment_files = apply_fade_to_segments(segments_folder, session_id)
+    else:
+        segment_files = glob.glob(os.path.join(segments_folder, '*.mp3'))
 
     # Erstellen einer temporären Datei, die das Intro, alle Segmente und Trenner kombiniert
     with open(f"{session_id}_temp_filelist.txt", "w") as filelist:
         # Zuerst die Intro-Datei hinzufügen
-        if os.path.exists(file_path_intro):
+        if toggle_intro and os.path.exists(file_path_intro):
             filelist.write(f"file '{file_path_intro}'\n")
 
         for i, segment_file in enumerate(segment_files):
@@ -91,7 +122,6 @@ def merge_mp3_with_separator(segments_folder, file_path_separator, output_file, 
         "-i", f"{session_id}_temp_filelist.txt",
         "-c", "copy",
         "-acodec", "libmp3lame",
-        "-loglevel", "debug",
         output_file
     ])
 
@@ -174,10 +204,10 @@ def extract_multiple_segments_to_single_file(file_path_transcript, segment_numbe
     print("Erstelle Segment")
     output_file = os.path.join(output_dir, f"{session_id}_output_segment_{segment_numbers_str}.mp3")
     subprocess.run([
-        "ffmpeg", "-i", input_file,
+        "ffmpeg", "-y",
+        "-i", input_file,
         "-af", f"aselect='{filter_string}',asetpts=N/SR/TB",
         "-acodec", "libmp3lame",
-        "-loglevel", "debug",
         output_file
     ])
 
@@ -196,10 +226,14 @@ def delete_files_with_number(folder, session_id):
                 print(f'Failed to delete {file_path}. Reason: {e}')
         else:
             print(f"Skipped: {file_path}")
-def process_transcription_in_blocks(file_path_transcript, file_path_episode, session_id, topic, type, block_size=25):
+
+def process_transcription_in_blocks(file_path_transcript, file_path_episode, session_id, topic, type, selected_length):
     with open(file_path_transcript, "r") as file:
         segments = file.readlines()
     print(len(segments))
+    print(selected_length)
+
+    block_size = calculate_blocks(file_path_episode, selected_length, len(segments))
 
     for i in range(0, len(segments), block_size):
         block = segments[i:i + block_size]
@@ -207,6 +241,35 @@ def process_transcription_in_blocks(file_path_transcript, file_path_episode, ses
         extract_multiple_segments_to_single_file(file_path_transcript, segment_numbers,  file_path_episode,
                                                  "segments", session_id)
         time.sleep(random.randint(2, 5))
+
+def calculate_blocks(file_path_episode, selected_length, total_segments):
+
+    total_length = get_mp3_length(file_path_episode)
+    segment_length = 13.5
+
+    if selected_length == "Short":
+        wished_length = total_length / 20
+    elif selected_length == "Middle":
+        wished_length = total_length / 10
+    elif selected_length == "Long":
+        wished_length = total_length / 5
+    else:
+        raise ValueError("Unbekanntes Wort. Bitte wähle 'small', 'middle' oder 'long'.")
+
+    necessary_runs = wished_length / segment_length
+    blocks = total_segments / necessary_runs
+    return round(blocks)
+
+def get_mp3_length(file_path_episode):
+    audio = MP3(file_path_episode)
+    return audio.info.length
+
+def get_session_id():
+    # Generierung einer fünfstelligen Zufallszahl
+    session_id = random.randint(10000, 99999)
+    return session_id
+
+session_id = get_session_id()
 
 # Streamlit App
 st.set_page_config(
@@ -221,66 +284,86 @@ st.set_page_config(
     }
 )
 
-left_co, cent_co,last_co = st.columns(3)
+left_co, cent_co, last_co = st.columns(3)
 with cent_co:
     st.image('PodSumAppBeta.png', width=200)
 
 
 st.write("**This is how it works:**")
 
-multi = '''Welcome to PodSum.app. Your AI tool for podcast audio summaries. Upload your podcast episode to be summarized, your intro and a separator sound. Then click on the "Sum it!" button and wait until the summary has been created. The summary can be downloaded as a MP3-file.
+multi = '''Welcome to PodSum.app v0.2. Your AI tool for podcast audio summaries. This tool is under constant development and maybe there are some bugs to be figured out ;) Upload your podcast episode to be summarized, add your intro and a separator sound. Then click on the "Sum it!" and wait until the summary has been created. After that the summary can be downloaded as a MP3-file. PodSum analyzes your episode for type and topic and cuts relevant passages into an audio summary. Further functions will follow. 
 '''
 st.markdown(multi)
 
 st.divider()
 
-# Upload only mp3 files with max 20mb size
-uploaded_file_episode = st.file_uploader("Upload Podcast Episode *Mandatory", type=['mp3'],
-                                    help="Lade hier die MP3 deiner Podcast-Episode hoch, für die eine Audio-Zusammenfassung erstellt werden soll.",
+left_co2, last_co2 = st.columns(2)
+with left_co2:
+    selected_length = st.radio(
+        "How long should your summary be?",
+        ["Short", "Middle", "Long"],
+        index=1,)
+
+with last_co2:
+    toggle_fade = st.toggle('Need Segment Fade-In?', value=True)
+
+st.divider()
+
+
+# Upload only mp3 files with max 30mb size
+uploaded_file_episode = st.file_uploader("Upload Your Podcast Episode :red[*Mandatory]", type=['mp3'],
+                                    help="Upload the MP3 of your podcast episode for which you want to create an audio summary here.",
                                     accept_multiple_files=False)
 
-# Upload only mp3 files with max 20mb size
-uploaded_file_intro = st.file_uploader("Upload Summary-Intro *Mandatory", type=['mp3'],
-                                    help="Lade hier dein Intro für die Audio-Zusammenfassung hoch. Zum Beispiel: Willkommen zu meinem Podcast XY. In der heutigen Episode wird es um XY gehen und hören wir jetzt mal rein...",
+# Upload only mp3 files with max 30mb size
+uploaded_file_separator = st.file_uploader("Upload Your Segment Separator  :red[*Mandatory]", type=['mp3'],
+                                    help="The segment separator is used to separate the individual impressions from the podcast episode.",
                                     accept_multiple_files=False)
 
-# Upload only mp3 files with max 20mb size
-uploaded_file_separator = st.file_uploader("Upload Segment Separator *Mandatory", type=['mp3'],
-                                    help="Der Segment Separator wird verwendet, um die einzelnen Impressionen aus der Podcast-Episode voneinander abzugrenzen.",
+# Upload only mp3 files with max 30mb size
+uploaded_file_intro = st.file_uploader("Upload Your Summary-Intro :green[*Optional]", type=['mp3'],
+                                    help="Upload your intro for the audio summary here. For example: Welcome to my podcast XY. Today's episode will be about XY and let's listen in now...",
                                     accept_multiple_files=False)
-
-
-
-# Generierung einer fünfstelligen Zufallszahl
-session_id = random.randint(10000, 99999)
-
 
 if st.button('Sum it!', type="primary"):
     with st.spinner("Summarizing your podcast..."):
-        if uploaded_file_episode is not None and uploaded_file_intro is not None and uploaded_file_separator is not None:
+        if uploaded_file_episode is not None and uploaded_file_separator is not None:
             file_path_transcript = os.path.join("transcript", f"{session_id}_transcript_{uploaded_file_episode.name}.txt")
             file_path_export = os.path.join("export", f"{session_id}_podSummarized_{uploaded_file_episode.name}")
             file_path_episode = os.path.join("episode", f"{session_id}_{uploaded_file_episode.name}")
-            file_path_intro = os.path.join("intro", f"{session_id}_{uploaded_file_intro.name}")
             file_path_separator = os.path.join("separator", f"{session_id}_{uploaded_file_separator.name}")
 
             with open(file_path_episode, "wb") as f:
                 f.write(uploaded_file_episode.getbuffer())
-            with open(file_path_intro, "wb") as f:
-                f.write(uploaded_file_intro.getbuffer())
+
             with open(file_path_separator, "wb") as f:
                 f.write(uploaded_file_separator.getbuffer())
 
-            transcribe_podcast(file_path_episode, file_path_transcript)
+            # Old Transcription
+            # transcribe_podcast(file_path_episode, file_path_transcript)
+
+            # New Transcription
+            transcribe_podcast_faster(file_path_episode, file_path_transcript)
             st.success("Listened to your podcast episode and transcribed it!")
 
             extracted_text = extract_max_1000_words(file_path_transcript)
             topic, type = get_type_and_topic(extracted_text)
 
-            process_transcription_in_blocks(file_path_transcript, file_path_episode, session_id, topic, type)
+            process_transcription_in_blocks(file_path_transcript, file_path_episode, session_id, topic, type, selected_length)
             st.success("Found the most relevant segments!")
 
-            merge_mp3_with_separator("segments", file_path_separator, file_path_export, session_id, file_path_intro)
+            if uploaded_file_intro is not None:
+                toggle_intro = True
+                file_path_intro = os.path.join("intro", f"{session_id}_{uploaded_file_intro.name}")
+                with open(file_path_intro, "wb") as f:
+                    f.write(uploaded_file_intro.getbuffer())
+                merge_mp3_with_separator("segments", file_path_separator, file_path_export, session_id,
+                                         toggle_intro, toggle_fade, file_path_intro)
+            else:
+                toggle_intro = False
+                merge_mp3_with_separator("segments", file_path_separator, file_path_export, session_id, toggle_intro, toggle_fade)
+
+
             st.success("Merged the segments and created the summary!")
 
             if file_path_export is not None and check_mp3_integrity(file_path_export):
@@ -288,7 +371,8 @@ if st.button('Sum it!', type="primary"):
                 audio_bytes = audio_file.read()
                 st.audio(audio_bytes, format='audio/mp3')
 
-                st.download_button(label="Download your summary", data=audio_bytes, file_name=f"{file_path_export}", mime="audio/mp3")
+                if st.download_button(label="Download your summary", data=audio_bytes, file_name=f"{file_path_export}", mime="audio/mp3"):
+                    st.rerun()
 
                 delete_files_with_number('segments', session_id)
                 delete_files_with_number('episode', session_id)

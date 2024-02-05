@@ -4,3 +4,9 @@ streamlit==1.30.0
 mutagen==1.47.0
 python-dotenv==0.21.1
 openai==1.10.0
+av==10.*
+ctranslate2>=3.22,<4
+huggingface_hub>=0.13
+tokenizers>=0.13,<0.16
+onnxruntime>=1.14,<2
+faster-whisper=0.10.0
