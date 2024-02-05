@@ -43,15 +43,11 @@ def transcribe_podcast(file_path, output_file):
 
 
 def transcribe_podcast_faster(file_path, output_file):
-
-
     model_size = "tiny"
     # Passen Sie die device und compute_type Parameter entsprechend Ihrer Umgebung an
     model = WhisperModel(model_size, device="cpu", compute_type="int8")
     i = 0
     segments, info = model.transcribe(file_path, beam_size=5)
-
-
 
     print("Detected language '%s' with probability %f" % (info.language, info.language_probability))
 
@@ -89,11 +85,11 @@ def apply_fade_to_segments(segments_folder, session_id):
 
     return faded_files
 
-def merge_mp3_with_separator(segments_folder, file_path_separator, output_file, session_id, toggle_intro, toggle_fade, file_path_intro=None):
 
-
+def merge_mp3_with_separator(segments_folder, file_path_separator, output_file, session_id, toggle_intro, toggle_fade,
+                             file_path_intro=None):
     # Löschen der spezifischen Datei, falls vorhanden
-    specific_file_to_delete = os.path.join(segments_folder, f"{session_id}_output_segment_0.mp3")
+    specific_file_to_delete = os.path.join(segments_folder, f"0_{session_id}_output_segment.mp3")
     if os.path.exists(specific_file_to_delete):
         os.remove(specific_file_to_delete)
 
@@ -103,13 +99,17 @@ def merge_mp3_with_separator(segments_folder, file_path_separator, output_file, 
     else:
         segment_files = glob.glob(os.path.join(segments_folder, '*.mp3'))
 
+    # Segmente nach der ersten Zahl im Dateinamen sortieren
+    segment_files_sorted = sorted(segment_files, key=lambda x: int(os.path.basename(x).split('_')[0]))
+
     # Erstellen einer temporären Datei, die das Intro, alle Segmente und Trenner kombiniert
     with open(f"{session_id}_temp_filelist.txt", "w") as filelist:
         # Zuerst die Intro-Datei hinzufügen
         if toggle_intro and os.path.exists(file_path_intro):
             filelist.write(f"file '{file_path_intro}'\n")
 
-        for i, segment_file in enumerate(segment_files):
+        # Einfügen des Trenners nur zwischen Segmenten, nicht vor dem ersten Segment
+        for i, segment_file in enumerate(segment_files_sorted):
             if i > 0:  # Vor jedes Segment nach dem ersten einen Trenner einfügen
                 filelist.write(f"file '{file_path_separator}'\n")
             filelist.write(f"file '{segment_file}'\n")
@@ -125,10 +125,12 @@ def merge_mp3_with_separator(segments_folder, file_path_separator, output_file, 
         output_file
     ])
 
-    # Löschen der temporären Dateiliste und der gefadeten Dateien
+    # Löschen der temporären Dateiliste und der gefadeten Dateien, wenn aktiviert
     os.remove(f"{session_id}_temp_filelist.txt")
-    for file in segment_files:
-        os.remove(file)
+    if toggle_fade:
+        for file in segment_files:
+            os.remove(file)
+
 
 def get_type_and_topic(transcript):
     print("Verarbeite nächsten Block")
@@ -160,7 +162,12 @@ def select_segments(block, topic, type):
         messages=[
             {"role": "system", "content": "Du bist ein hilfreicher KI-Assistent, der Segmente im Transkript auswählt, die besonders hohe Relevanz anhand einer Fragestellung haben."},
             {"role": "user",
-             "content": f"Identifiziere bitte jeweils mindestens 3 zusammenhängende, numerisch aufeinanderfolgende Segmente, die eine für den Zuhörenden extrem relevante Aussage zum Thema:'{topic}' des Podcasts enthalten. Es dürfen keine Eigenwerbung, Verweise auf Websites oder ähnliches enthalten sein. Zusätzlich muss es sich um vom Interviewgast gegebene Antworten handeln, sofern der Typ Interview ist. Wenn der Type 'Solo' ist, beachte bitte alle Inhalte. Das ist der Typ der Podcast Episode {type}. Gib ausschließlich die Segmentnummern per Komata getrennt zurück ohne Leerzeichen. Wenn du keine Segmente mehr findest, gib 0 aus. Hier ist das Transkript {block}"}
+             "content": f"Der Podcast aus dem die folgenden Segmente stammen hat folgendes Thema: {topic}."
+                        f"Identifiziere bitte jeweils mindestens 3 oder mehr (weniger als 12) zusammenhängende, numerisch mit jeweils + 1 aufeinanderfolgende Segmente (es darf keine Segmente geben, die mehr als 1 auseinanderliegen), die eine für den Zuhörenden extrem relevante Aussage wiederspiegeln. Also etwas, was defintiv in eine Audio-Zusammenfassung hineingehören würde. Achte darauf die Segmente so auszuwählen, dass die Kernaussage komplett enthalten ist. "
+                        f"Es dürfen keine Eigenwerbung, Verweise auf Websites oder ähnliches enthalten sein."
+                        f"Es existieren 3 verschiedene Podcast Typen: Das sind 1. Interviews, 2. Talkrunden und 3. Solos. Die folgenden Segmente stammen aus einem Podcast vom Typ: {type}."
+                        f"Wenn der Type 'Solo' ist, beachte bitte alle Inhalte. Wenn der Typ 'Interview' ist, beachte bitte nur die Inhalte des antwortenden Gastes. Wenn der Typ 'talk' ist, achte auf alle Aussagen."
+                        f"Gib ausschließlich die Segmentnummern per Komata getrennt zurück ohne Leerzeichen. Wenn du keine relevanten Segmente mehr findest, gib 0 aus. Hier ist sind die transkribierten Segmente: {block}"}
         ],
         max_tokens=1000,
         temperature=1,
@@ -202,7 +209,7 @@ def extract_multiple_segments_to_single_file(file_path_transcript, segment_numbe
     filter_string = '+'.join(filters)
     segment_numbers_str = "_".join(map(str, segment_numbers))
     print("Erstelle Segment")
-    output_file = os.path.join(output_dir, f"{session_id}_output_segment_{segment_numbers_str}.mp3")
+    output_file = os.path.join(output_dir, f"{segment_numbers_str}_{session_id}_output_segment.mp3")
     subprocess.run([
         "ffmpeg", "-y",
         "-i", input_file,
@@ -379,6 +386,7 @@ if st.button('Sum it!', type="primary"):
                 delete_files_with_number('intro', session_id)
                 delete_files_with_number('separator', session_id)
                 delete_files_with_number('transcript', session_id)
+                #delete_files_with_number('export', session_id)
 
             else:
                 st.write("Something went wrong. Please try again.")
